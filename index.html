@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>בוט קולי עם Gemini (שיחה רציפה + עצירה)</title> <style>
+    <title>בוט קולי רב-לשוני עם Gemini</title> <style>
         /* CSS ללא שינוי */
         body { font-family: sans-serif; padding: 20px; }
         button { padding: 10px; margin: 5px; font-size: 16px; cursor: pointer; }
+        select { padding: 8px; margin-left: 10px; font-size: 16px; } /* עיצוב קל לרשימה */
         #output, #status, #llmResponse { margin-top: 15px; border: 1px solid #ccc; padding: 10px; min-height: 50px; background-color: #f9f9f9; white-space: pre-wrap; }
         #llmResponse { background-color: #e9f5ff; }
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #4285F4; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; display: inline-block; margin-left: 10px; vertical-align: middle; display: none; }
@@ -15,11 +16,22 @@
 </head>
 <body>
 
-    <h1>בוט קולי בעברית עם Gemini (שיחה רציפה + עצירה)</h1> <button id="newChatButton">התחל שיחה חדשה</button>
+    <h1>בוט קולי רב-לשוני עם Gemini</h1> <div style="margin-bottom: 15px;">
+        <label for="languageSelect">שפת שיחה:</label>
+        <select id="languageSelect">
+            <option value="he-IL">עברית</option>
+            <option value="en-US">English (US)</option>
+            <option value="tr-TR">Türkçe (Türkiye)</option>
+            <option value="ar-SA">العربية (السعودية)</option>
+            </select>
+        <button id="newChatButton">התחל שיחה חדשה</button>
+    </div>
 
-    <h2>הקשבה / שליטה</h2>
+
+    <h2>הקשבה (זיהוי דיבור - STT)</h2>
     <button id="startButton">התחל לדבר (ידני)</button>
-    <button id="stopButton" disabled>עצור / קח תור</button> <div id="status">סטטוס: מוכן <div id="loadingSpinner" class="loader"></div></div>
+    <button id="stopButton" disabled>עצור / קח תור</button>
+    <div id="status">סטטוס: מוכן <div id="loadingSpinner" class="loader"></div></div>
     <div id="output">מה שאמרת יופיע כאן...</div>
     <div id="llmResponse">תשובת הבוט (מ-Gemini) תופיע כאן...</div>
     <div id="historyDisplay" style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px; font-size: 0.9em; color: #555;">
@@ -34,12 +46,14 @@
         const GEMINI_MODEL_NAME = 'gemini-1.5-flash-latest';
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_NAME}:generateContent?key=${GEMINI_API_KEY}`;
 
-        // --- משתנה גלובלי להיסטוריה (ללא שינוי) ---
+        // --- משתנים גלובליים ---
         let conversationHistory = [];
+        const languageSelect = document.getElementById('languageSelect');
+        let currentLang = languageSelect.value; // קביעת שפה התחלתית מה-HTML
 
         // --- הגדרות אלמנטים, STT, TTS ---
         const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton'); // שמו נשאר stopButton
+        const stopButton = document.getElementById('stopButton');
         const newChatButton = document.getElementById('newChatButton');
         const statusDiv = document.getElementById('status');
         const outputDiv = document.getElementById('output');
@@ -49,109 +63,174 @@
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition;
         const synthesis = window.speechSynthesis;
-        let voices = [];
-        let hebrewVoices = [];
-        function populateVoiceList() { /* ... ללא שינוי ... */ if(typeof speechSynthesis !== 'undefined') voices = synthesis.getVoices(); hebrewVoices = voices.filter(voice => voice.lang === 'he-IL'); console.log("--- קולות עבריים זמינים (מובנים בדפדפן) ---"); if (hebrewVoices.length === 0) console.log("לא נמצאו קולות עבריים מובנים."); else hebrewVoices.forEach((voice, index) => console.log(`${index + 1}: שם: ${voice.name}, שפה: ${voice.lang}, ברירת מחדל? ${voice.default}`)); console.log("--------------------------------------------"); }
+        let voices = []; // נאכלס את כל הקולות הזמינים
+
+        // פונקציה לאכלוס רשימת הקולות (נקראת בהמשך)
+        function populateVoiceList() {
+             if(typeof speechSynthesis === 'undefined') return;
+             // אכלוס ראשוני (או עדכון) של מערך הקולות הגלובלי
+             voices = synthesis.getVoices();
+             console.log(`Total voices found: ${voices.length}`);
+             logVoicesForLanguage(currentLang); // הדפסת הקולות לשפה הנוכחית
+        }
+
+        // פונקציה להדפסת הקולות הזמינים לשפה ספציפית
+        function logVoicesForLanguage(langCode) {
+            if (voices.length === 0) {
+                console.log("Voice list not populated yet.");
+                return;
+            }
+            const langPrefix = langCode.split('-')[0]; // 'he', 'en', 'tr', 'ar'
+            const currentLangVoices = voices.filter(voice => voice.lang.startsWith(langPrefix));
+            console.log(`--- Available voices for ${langCode} (${langPrefix}) ---`);
+            if (currentLangVoices.length === 0) {
+                console.log(`No built-in voices found for ${langCode}.`);
+            } else {
+                currentLangVoices.forEach((voice, index) => {
+                    console.log(`${index + 1}: Name: ${voice.name}, Lang: ${voice.lang}, Default: ${voice.default}`);
+                });
+            }
+            console.log("--------------------------------------------");
+        }
+
 
         // פונקציה לעדכון תצוגת ההיסטוריה (ללא שינוי)
         function updateHistoryDisplay() { /* ... ללא שינוי ... */ historyContentDiv.innerHTML = ''; conversationHistory.forEach(turn => { const turnDiv = document.createElement('div'); turnDiv.style.marginBottom = '5px'; turnDiv.textContent = `[${turn.role === 'user' ? 'אתה' : 'בוט'}]: ${turn.parts[0].text}`; historyContentDiv.appendChild(turnDiv); }); historyContentDiv.scrollTop = historyContentDiv.scrollHeight; }
 
-        // פונקציה להתחלה בטוחה של זיהוי דיבור (ללא שינוי מהקוד הקודם)
-        function startRecognitionSafe() { console.log("Attempting to start recognition..."); if (recognition) { try { recognition.start(); statusDiv.firstChild.textContent = "סטטוס: מקשיב..."; startButton.disabled = true; stopButton.disabled = false; outputDiv.textContent = 'מקשיב...'; console.log("Recognition started successfully."); } catch (e) { console.error("Error starting recognition:", e); statusDiv.firstChild.textContent = "שגיאה: לא ניתן להתחיל זיהוי קולי."; startButton.disabled = false; stopButton.disabled = true; } } else { console.error("Recognition object not initialized."); statusDiv.firstChild.textContent = "שגיאה: אובייקט הזיהוי לא אותר."; } }
+        // *** אירוע לשינוי שפה ***
+        languageSelect.onchange = () => {
+            currentLang = languageSelect.value;
+            console.log(`Language changed to: ${currentLang}`);
+            // נאפס את השיחה כשמשנים שפה
+            newChatButton.onclick(); // מפעיל את איפוס השיחה
+             // עדכון הסטטוס לשפה החדשה
+            statusDiv.firstChild.textContent = `סטטוס: שפה שונתה. מוכן (${currentLang}).`;
+             // נדפיס את הקולות הזמינים לשפה החדשה
+            logVoicesForLanguage(currentLang);
+        };
 
-        // אירוע לכפתור "התחל שיחה חדשה" (ללא שינוי)
-        newChatButton.onclick = () => { if (recognition) recognition.stop(); if (synthesis && synthesis.speaking) synthesis.cancel(); conversationHistory = []; outputDiv.textContent = '...'; llmResponseDiv.textContent = '...'; statusDiv.firstChild.textContent = "סטטוס: שיחה חדשה."; startButton.disabled = false; stopButton.disabled = true; updateHistoryDisplay(); console.log("New chat started."); };
 
-        if (SpeechRecognition) {
-            recognition = new SpeechRecognition();
-            recognition.continuous = false; recognition.lang = 'he-IL';
-            recognition.interimResults = false; recognition.maxAlternatives = 1;
-            statusDiv.firstChild.textContent = "סטטוס: מוכן להתחיל הקלטה.";
-
-            startButton.onclick = startRecognitionSafe;
-
-            // *** שינוי בלוגיקה של כפתור העצירה ***
-            stopButton.onclick = () => {
-                if (synthesis && synthesis.speaking) {
-                    // אם הבוט מדבר -> עצור אותו והתחל להקשיב למשתמש
-                    console.log("User interrupting TTS to speak.");
-                    synthesis.cancel(); // עוצר את הדיבור הנוכחי
-                    // שינוי סטטוס מיידי לפני תחילת ההקשבה
-                    statusDiv.firstChild.textContent = "סטטוס: מקשיב (אחרי עצירה)...";
-                    startRecognitionSafe(); // מפעיל הקשבה למשתמש
-                } else if (!startButton.disabled) {
-                    // אם ההקשבה למשתמש פעילה (כפתור התחלה מנוטרל) -> עצור אותה
-                    console.log("User stopping STT manually.");
-                    if (recognition) {
-                        recognition.stop();
-                    }
-                    // חזרה למצב מוכן
-                    statusDiv.firstChild.textContent = "סטטוס: הפסקת הקשבה ידנית. מוכן.";
-                    startButton.disabled = false;
-                    stopButton.disabled = true;
-                } else {
-                    // מצב לא צפוי (למשל, לחיצה בזמן שליחת בקשה ל-LLM)
-                     console.log("Stop button clicked in unexpected state.");
-                }
-            };
-
-            recognition.onresult = async (event) => {
-                // ברגע שיש תוצאה, נטרל את כפתור העצירה עד שהתגובה תגיע ותושמע
-                stopButton.disabled = true;
-
-                const transcript = event.results[0][0].transcript; outputDiv.textContent = `זיהיתי: ${transcript}`;
-                conversationHistory.push({ role: "user", parts: [{ text: transcript }] }); updateHistoryDisplay();
-
-                statusDiv.firstChild.textContent = "סטטוס: שולח בקשה ל-Gemini..."; loadingSpinner.style.display = 'inline-block';
-                let llmAnswer = '';
-                try {
-                    llmAnswer = await queryLLM(conversationHistory);
-                    llmResponseDiv.textContent = `תשובת הבוט: ${llmAnswer}`;
-                    conversationHistory.push({ role: "model", parts: [{ text: llmAnswer }] }); updateHistoryDisplay();
-
-                    statusDiv.firstChild.textContent = "סטטוס: התקבלה תשובה מ-Gemini. משמיע...";
-                    if (synthesis && llmAnswer) {
-                         const utterThis = new SpeechSynthesisUtterance(llmAnswer);
-                         utterThis.lang = 'he-IL';
-                         const defaultHebrewVoice = hebrewVoices.find(voice => voice.default) || hebrewVoices[0];
-                         if(defaultHebrewVoice) utterThis.voice = defaultHebrewVoice;
-                         else console.warn("No Hebrew voice found for TTS.");
-
-                         // הפעל את כפתור העצירה/קח_תור מיד לפני שהדיבור מתחיל
-                         startButton.disabled = true; // ודא שההתחלה הידנית מנוטרלת
-                         stopButton.disabled = false;
-
-                         utterThis.onend = function(event) {
-                             console.log('TTS finished speaking. Starting recognition again...');
-                             // הדיבור הסתיים טבעית, התחל להקשיב אוטומטית
-                             // כפתור העצירה כבר מאופשר ע"י startRecognitionSafe
-                             startRecognitionSafe();
-                         };
-
-                         utterThis.onerror = function(event){ console.error('System TTS error', event); statusDiv.firstChild.textContent = "סטטוס: שגיאה בהשמעה. מוכן."; startButton.disabled = false; stopButton.disabled = true; };
-                         synthesis.speak(utterThis);
-                    } else {
-                         statusDiv.firstChild.textContent = "סטטוס: התקבלה תשובה (TTS לא זמין). מוכן.";
-                         startButton.disabled = false; stopButton.disabled = true;
-                    }
-                } catch (error) { /* ... טיפול בשגיאות LLM מחזיר למצב מוכן ... */
-                     console.error("Error querying Gemini:", error); llmResponseDiv.textContent = `שגיאה בתקשורת עם Gemini: ${error.message}`; statusDiv.firstChild.textContent = "סטטוס: שגיאה. מוכן."; if (llmAnswer === '') { conversationHistory.pop(); updateHistoryDisplay(); } startButton.disabled = false; stopButton.disabled = true;
-                } finally { loadingSpinner.style.display = 'none'; }
-            };
-
-            // נשאיר את onend ו-onerror כפי שהיו בגרסה הקודמת לטיפול בשגיאות/סיום לא צפוי
-             recognition.onend = () => { if (!startButton.disabled) { console.log("Recognition ended while idle."); statusDiv.firstChild.textContent = "סטטוס: מוכן להתחיל הקלטה."; stopButton.disabled = true; } else { console.log("Recognition ended, likely processing result/TTS."); } };
-             recognition.onerror = (event) => { if (event.error === 'no-speech') { outputDiv.textContent = 'לא זוהה דיבור. לחץ שוב כדי לדבר.'; statusDiv.firstChild.textContent = 'סטטוס: לא זוהה דיבור. מוכן.'; } else if (event.error === 'audio-capture') { outputDiv.textContent = 'שגיאה: מיקרופון.'; statusDiv.firstChild.textContent = 'שגיאה: מיקרופון. מוכן.';} else if (event.error === 'aborted') { console.log("Recognition aborted by user action."); } else { statusDiv.firstChild.textContent = `שגיאה בזיהוי: ${event.error}. מוכן.`; console.error("STT error:", event.error); } startButton.disabled = false; stopButton.disabled = true; loadingSpinner.style.display = 'none'; };
-        } else { /* ... ללא שינוי ... */
-             statusDiv.firstChild.textContent = "שגיאה: הדפדפן לא תומך ב-Web Speech API."; startButton.disabled = true; stopButton.disabled = true; }
-
-        // --- פונקצית הקריאה ל-Gemini API (ללא שינוי) ---
-        async function queryLLM(history) { /* ... הקוד של הפונקציה הזו נשאר זהה לקוד הקודם ... */
-             const instruction = "אתה עוזר וירטואלי ידידותי. ענה תמיד בשפה העברית."; let contentsToSend = []; if (history.length === 1) { contentsToSend = [{ role: "user", parts: [{ text: instruction + "\n\n" + history[0].parts[0].text }]}]; } else { contentsToSend = history; } const requestBody = { contents: contentsToSend, generationConfig: { temperature: 0.75 } }; console.log("Sending to Gemini:", JSON.stringify(requestBody, null, 2)); const response = await fetch(GEMINI_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) }); if (!response.ok) { const errorData = await response.json().catch(() => ({ error: { message: "תגובת שגיאה לא תקינה." } })); console.error("Gemini API Error:", errorData); if (result.candidates?.[0]?.finishReason === 'SAFETY') { throw new Error("התשובה נחסמה עקב בטיחות."); } throw new Error(`שגיאת Gemini API (${response.status}): ${errorData.error?.message || response.statusText}`); } const result = await response.json(); console.log("Gemini API Result:", result); if (!result.candidates || result.candidates.length === 0 || !result.candidates[0].content?.parts?.[0]?.text) { console.error("Invalid Gemini response:", result); throw new Error("תשובה לא תקינה מ-Gemini."); } const generatedText = result.candidates[0].content.parts[0].text; return generatedText.trim();
+        // פונקציה להתחלה בטוחה של זיהוי דיבור - *** מעודכנת להשתמש ב-currentLang ***
+        function startRecognitionSafe() {
+            console.log(`Attempting to start recognition in ${currentLang}...`);
+            if (recognition) {
+                 try {
+                    recognition.lang = currentLang; // *** הגדרת שפת הזיהוי ***
+                    recognition.start();
+                    statusDiv.firstChild.textContent = `סטטוס: מקשיב (${currentLang})...`;
+                    startButton.disabled = true; stopButton.disabled = false;
+                    outputDiv.textContent = 'מקשיב...'; console.log("Recognition started successfully.");
+                } catch (e) { console.error("Error starting recognition:", e); statusDiv.firstChild.textContent = "שגיאה: לא ניתן להתחיל זיהוי קולי."; startButton.disabled = false; stopButton.disabled = true; }
+            } else { console.error("Recognition object not initialized."); statusDiv.firstChild.textContent = "שגיאה: אובייקט הזיהוי לא אותר."; }
         }
 
-        // --- טעינת רשימת הקולות (ללא שינוי) ---
-        setTimeout(() => { populateVoiceList(); if (typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged !== undefined) { speechSynthesis.onvoiceschanged = populateVoiceList; } }, 500);
+        // אירוע לכפתור "התחל שיחה חדשה" (ללא שינוי)
+        newChatButton.onclick = () => { if (recognition) recognition.stop(); if (synthesis && synthesis.speaking) synthesis.cancel(); conversationHistory = []; outputDiv.textContent = '...'; llmResponseDiv.textContent = '...'; statusDiv.firstChild.textContent = `סטטוס: שיחה חדשה. מוכן (${currentLang}).`; startButton.disabled = false; stopButton.disabled = true; updateHistoryDisplay(); console.log("New chat started."); };
+
+        // הגדרת אובייקט הזיהוי
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            // recognition.lang = currentLang; // נגדיר את השפה לפני כל הפעלה
+            recognition.interimResults = false; recognition.maxAlternatives = 1;
+            statusDiv.firstChild.textContent = `סטטוס: מוכן להתחיל הקלטה (${currentLang}).`;
+
+            startButton.onclick = startRecognitionSafe;
+            stopButton.onclick = () => { /* ... לוגיקת עצירה ידנית ללא שינוי ... */ if (synthesis && synthesis.speaking) { console.log("User interrupting TTS to speak."); synthesis.cancel(); statusDiv.firstChild.textContent = "סטטוס: מקשיב (אחרי עצירה)..."; startRecognitionSafe(); } else if (!startButton.disabled) { console.log("User stopping STT manually."); if (recognition) { recognition.stop(); } statusDiv.firstChild.textContent = `סטטוס: הפסקת הקשבה ידנית. מוכן (${currentLang}).`; startButton.disabled = false; stopButton.disabled = true; } else { console.log("Stop button clicked in unexpected state."); } };
+
+            recognition.onresult = async (event) => {
+                 stopButton.disabled = true; // נטרול זמני בזמן עיבוד
+                 const transcript = event.results[0][0].transcript; outputDiv.textContent = `זיהיתי: ${transcript}`;
+                 conversationHistory.push({ role: "user", parts: [{ text: transcript }] }); updateHistoryDisplay();
+
+                 statusDiv.firstChild.textContent = "סטטוס: שולח בקשה ל-Gemini..."; loadingSpinner.style.display = 'inline-block';
+                 let llmAnswer = '';
+                 try {
+                     llmAnswer = await queryLLM(conversationHistory, currentLang); // העברת השפה הנבחרת
+                     llmResponseDiv.textContent = `תשובת הבוט: ${llmAnswer}`;
+                     conversationHistory.push({ role: "model", parts: [{ text: llmAnswer }] }); updateHistoryDisplay();
+
+                     statusDiv.firstChild.textContent = "סטטוס: התקבלה תשובה מ-Gemini. משמיע...";
+                     if (synthesis && llmAnswer) {
+                          const utterThis = new SpeechSynthesisUtterance(llmAnswer);
+                          utterThis.lang = currentLang; // *** שימוש בשפה הנבחרת ל-TTS ***
+                          console.log(`Setting utterance language to: ${currentLang}`);
+
+                          // *** בחירת קול ברירת מחדל לשפה הנבחרת ***
+                          const langPrefix = currentLang.split('-')[0];
+                          const availableVoicesForLang = voices.filter(voice => voice.lang.startsWith(langPrefix));
+                          const defaultVoice = availableVoicesForLang.find(voice => voice.default) || availableVoicesForLang[0];
+                          if (defaultVoice) {
+                              utterThis.voice = defaultVoice;
+                              console.log(`Using system voice for ${currentLang}:`, defaultVoice.name);
+                          } else {
+                              console.warn(`No specific voice found for ${currentLang}. Relying on utterThis.lang.`);
+                          }
+                          // *** סוף בחירת קול ***
+
+                          // הפעל את כפתור העצירה לפני שהדיבור מתחיל
+                          startButton.disabled = true;
+                          stopButton.disabled = false;
+
+                          utterThis.onend = function(event) { console.log('TTS finished speaking. Triggering automatic recognition restart.'); startRecognitionSafe(); };
+                          utterThis.onerror = function(event){ console.error('System TTS error', event); statusDiv.firstChild.textContent = `סטטוס: שגיאה בהשמעה. מוכן (${currentLang}).`; startButton.disabled = false; stopButton.disabled = true; };
+                          synthesis.speak(utterThis);
+                     } else {
+                          statusDiv.firstChild.textContent = `סטטוס: התקבלה תשובה (TTS לא זמין). מוכן (${currentLang}).`; startButton.disabled = false; stopButton.disabled = true;
+                     }
+                 } catch (error) { /* ... טיפול בשגיאות LLM מחזיר למצב מוכן ... */
+                      console.error("Error querying Gemini:", error); llmResponseDiv.textContent = `שגיאה בתקשורת עם Gemini: ${error.message}`; statusDiv.firstChild.textContent = `סטטוס: שגיאה. מוכן (${currentLang}).`; if (llmAnswer === '') { conversationHistory.pop(); updateHistoryDisplay(); } startButton.disabled = false; stopButton.disabled = true;
+                 } finally { loadingSpinner.style.display = 'none'; }
+            };
+            recognition.onend = () => { /* ... ללא שינוי ... */ if (!startButton.disabled) { console.log("Recognition ended while idle."); statusDiv.firstChild.textContent = `סטטוס: מוכן להתחיל הקלטה (${currentLang}).`; stopButton.disabled = true; } else { console.log("Recognition ended, likely processing result/TTS."); } };
+            recognition.onerror = (event) => { /* ... טיפול בשגיאות STT מחזיר למצב מוכן ... */ if (event.error === 'no-speech') { outputDiv.textContent = 'לא זוהה דיבור. לחץ שוב כדי לדבר.'; statusDiv.firstChild.textContent = `סטטוס: לא זוהה דיבור. מוכן (${currentLang}).`; } else if (event.error === 'audio-capture') { outputDiv.textContent = 'שגיאה: מיקרופון.'; statusDiv.firstChild.textContent = `שגיאה: מיקרופון. מוכן (${currentLang}).`;} else if (event.error === 'aborted') { console.log("Recognition aborted by user action."); } else { statusDiv.firstChild.textContent = `שגיאה בזיהוי: ${event.error}. מוכן (${currentLang}).`; console.error("STT error:", event.error); } startButton.disabled = false; stopButton.disabled = true; loadingSpinner.style.display = 'none'; };
+        } else { /* ... ללא שינוי ... */
+              statusDiv.firstChild.textContent = "שגיאה: הדפדפן שלך לא תומך ב-Web Speech API."; startButton.disabled = true; stopButton.disabled = true; }
+
+        // --- פונקצית הקריאה ל-Gemini API (מקבלת היסטוריה ושפה רצויה) ---
+        async function queryLLM(history, targetLang) { // הוספנו פרמטר שפה
+            // *** קביעת שם השפה להנחיה ***
+            let languageName;
+            switch(targetLang) {
+                case 'en-US': languageName = "English"; break;
+                case 'tr-TR': languageName = "Turkish"; break;
+                case 'ar-SA': languageName = "Arabic"; break;
+                default: languageName = "Hebrew"; // he-IL
+            }
+            const instruction = `You are a friendly virtual assistant. Always answer ONLY in the ${languageName} language. Be polite and conversational.`;
+
+            let contentsToSend = [];
+            const firstUserTurnText = (history.length > 0 && history[0].role === 'user') ? history[0].parts[0].text : '';
+            if (history.length === 1) {
+                // הנחיה מפורשת בתחילת השיחה
+                 contentsToSend = [{ role: "user", parts: [{ text: instruction + "\n\nUser question: " + firstUserTurnText }]}];
+            } else {
+                // נשלח את ההיסטוריה כמו שהיא. נניח שג'מיני ישמור על השפה מההקשר.
+                // אם נרצה להיות בטוחים יותר, אפשר להוסיף הנחיית שפה קצרה לפני הקלט האחרון של המשתמש,
+                // אבל נשאיר את זה פשוט כרגע.
+                 contentsToSend = history;
+            }
+
+            const requestBody = { contents: contentsToSend, generationConfig: { temperature: 0.75 } };
+            console.log(`Sending to Gemini (requesting ${languageName}):`, JSON.stringify(requestBody, null, 2));
+            const response = await fetch(GEMINI_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
+
+            // ... שאר הפונקציה וטיפול בשגיאות ללא שינוי ...
+            if (!response.ok) { const errorData = await response.json().catch(() => ({ error: { message: "תגובת שגיאה לא תקינה." } })); console.error("Gemini API Error:", errorData); if (result.candidates?.[0]?.finishReason === 'SAFETY') { throw new Error("התשובה נחסמה עקב בטיחות."); } throw new Error(`שגיאת Gemini API (${response.status}): ${errorData.error?.message || response.statusText}`); } const result = await response.json(); console.log("Gemini API Result:", result); if (!result.candidates || result.candidates.length === 0 || !result.candidates[0].content?.parts?.[0]?.text) { console.error("Invalid Gemini response:", result); throw new Error("תשובה לא תקינה מ-Gemini."); } const generatedText = result.candidates[0].content.parts[0].text; return generatedText.trim();
+        }
+
+        // --- טעינת רשימת הקולות ---
+        // חשוב לקרוא לזה אחרי שה-DOM מוכן, ואז שוב אם הקולות משתנים
+        window.addEventListener('load', () => {
+            // נסיון ראשון לטעון קולות
+            setTimeout(() => {
+                populateVoiceList();
+                // הגדרת מאזין לשינויים עתידיים ברשימת הקולות
+                if (typeof speechSynthesis !== 'undefined' && speechSynthesis.onvoiceschanged !== undefined) {
+                    speechSynthesis.onvoiceschanged = populateVoiceList;
+                }
+            }, 500); // המתנה קצרה ליתר ביטחון
+        });
 
     </script>
 
