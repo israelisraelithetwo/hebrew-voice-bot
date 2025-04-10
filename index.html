@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>בוט קולי עם Gemini (שיחה רציפה v2)</title> <style>
+    <title>בוט קולי עם Gemini (שיחה רציפה + עצירה)</title> <style>
         /* CSS ללא שינוי */
         body { font-family: sans-serif; padding: 20px; }
         button { padding: 10px; margin: 5px; font-size: 16px; cursor: pointer; }
@@ -15,12 +15,11 @@
 </head>
 <body>
 
-    <h1>בוט קולי בעברית עם Gemini (שיחה רציפה v2)</h1> <button id="newChatButton">התחל שיחה חדשה</button>
+    <h1>בוט קולי בעברית עם Gemini (שיחה רציפה + עצירה)</h1> <button id="newChatButton">התחל שיחה חדשה</button>
 
-    <h2>הקשבה (זיהוי דיבור - STT)</h2>
+    <h2>הקשבה / שליטה</h2>
     <button id="startButton">התחל לדבר (ידני)</button>
-    <button id="stopButton" disabled>סיים לדבר</button>
-    <div id="status">סטטוס: מוכן <div id="loadingSpinner" class="loader"></div></div>
+    <button id="stopButton" disabled>עצור / קח תור</button> <div id="status">סטטוס: מוכן <div id="loadingSpinner" class="loader"></div></div>
     <div id="output">מה שאמרת יופיע כאן...</div>
     <div id="llmResponse">תשובת הבוט (מ-Gemini) תופיע כאן...</div>
     <div id="historyDisplay" style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 10px; font-size: 0.9em; color: #555;">
@@ -40,7 +39,7 @@
 
         // --- הגדרות אלמנטים, STT, TTS ---
         const startButton = document.getElementById('startButton');
-        const stopButton = document.getElementById('stopButton');
+        const stopButton = document.getElementById('stopButton'); // שמו נשאר stopButton
         const newChatButton = document.getElementById('newChatButton');
         const statusDiv = document.getElementById('status');
         const outputDiv = document.getElementById('output');
@@ -57,31 +56,8 @@
         // פונקציה לעדכון תצוגת ההיסטוריה (ללא שינוי)
         function updateHistoryDisplay() { /* ... ללא שינוי ... */ historyContentDiv.innerHTML = ''; conversationHistory.forEach(turn => { const turnDiv = document.createElement('div'); turnDiv.style.marginBottom = '5px'; turnDiv.textContent = `[${turn.role === 'user' ? 'אתה' : 'בוט'}]: ${turn.parts[0].text}`; historyContentDiv.appendChild(turnDiv); }); historyContentDiv.scrollTop = historyContentDiv.scrollHeight; }
 
-        // *** פונקציה מתוקנת להתחלה בטוחה של זיהוי דיבור ***
-        function startRecognitionSafe() {
-            console.log("Attempting to start recognition..."); // הוספת לוג
-            // בדוק אם אובייקט הזיהוי קיים
-            if (recognition) {
-                 try {
-                    // אין צורך לבדוק את startButton.disabled כאן להפעלה אוטומטית
-                    recognition.start();
-                    statusDiv.firstChild.textContent = "סטטוס: מקשיב (אוטומטי)..."; // עדכון סטטוס
-                    startButton.disabled = true; // נטרל הפעלה ידנית כשהוא מקשיב
-                    stopButton.disabled = false; // אפשר עצירה
-                    outputDiv.textContent = 'מקשיב...';
-                    console.log("Recognition started successfully."); // הוספת לוג
-                } catch (e) {
-                    // שגיאה בהפעלה (למשל, אם המיקרופון לא זמין פתאום)
-                    console.error("Error starting recognition:", e);
-                    statusDiv.firstChild.textContent = "שגיאה: לא ניתן להתחיל זיהוי קולי.";
-                    startButton.disabled = false; // אפשר ניסיון ידני
-                    stopButton.disabled = true;
-                }
-            } else {
-                console.error("Recognition object not initialized.");
-                statusDiv.firstChild.textContent = "שגיאה: אובייקט הזיהוי לא אותר.";
-            }
-        }
+        // פונקציה להתחלה בטוחה של זיהוי דיבור (ללא שינוי מהקוד הקודם)
+        function startRecognitionSafe() { console.log("Attempting to start recognition..."); if (recognition) { try { recognition.start(); statusDiv.firstChild.textContent = "סטטוס: מקשיב..."; startButton.disabled = true; stopButton.disabled = false; outputDiv.textContent = 'מקשיב...'; console.log("Recognition started successfully."); } catch (e) { console.error("Error starting recognition:", e); statusDiv.firstChild.textContent = "שגיאה: לא ניתן להתחיל זיהוי קולי."; startButton.disabled = false; stopButton.disabled = true; } } else { console.error("Recognition object not initialized."); statusDiv.firstChild.textContent = "שגיאה: אובייקט הזיהוי לא אותר."; } }
 
         // אירוע לכפתור "התחל שיחה חדשה" (ללא שינוי)
         newChatButton.onclick = () => { if (recognition) recognition.stop(); if (synthesis && synthesis.speaking) synthesis.cancel(); conversationHistory = []; outputDiv.textContent = '...'; llmResponseDiv.textContent = '...'; statusDiv.firstChild.textContent = "סטטוס: שיחה חדשה."; startButton.disabled = false; stopButton.disabled = true; updateHistoryDisplay(); console.log("New chat started."); };
@@ -92,15 +68,37 @@
             recognition.interimResults = false; recognition.maxAlternatives = 1;
             statusDiv.firstChild.textContent = "סטטוס: מוכן להתחיל הקלטה.";
 
-            startButton.onclick = startRecognitionSafe; // הפעלה ידנית עדיין משתמשת בפונקציה הבטוחה
+            startButton.onclick = startRecognitionSafe;
 
-            stopButton.onclick = () => { // עצירה ידנית עדיין שוברת את הלולאה
-                if (recognition) recognition.stop();
-                statusDiv.firstChild.textContent = "סטטוס: הפסקת הקשבה ידנית. מוכן.";
-                startButton.disabled = false; stopButton.disabled = true;
+            // *** שינוי בלוגיקה של כפתור העצירה ***
+            stopButton.onclick = () => {
+                if (synthesis && synthesis.speaking) {
+                    // אם הבוט מדבר -> עצור אותו והתחל להקשיב למשתמש
+                    console.log("User interrupting TTS to speak.");
+                    synthesis.cancel(); // עוצר את הדיבור הנוכחי
+                    // שינוי סטטוס מיידי לפני תחילת ההקשבה
+                    statusDiv.firstChild.textContent = "סטטוס: מקשיב (אחרי עצירה)...";
+                    startRecognitionSafe(); // מפעיל הקשבה למשתמש
+                } else if (!startButton.disabled) {
+                    // אם ההקשבה למשתמש פעילה (כפתור התחלה מנוטרל) -> עצור אותה
+                    console.log("User stopping STT manually.");
+                    if (recognition) {
+                        recognition.stop();
+                    }
+                    // חזרה למצב מוכן
+                    statusDiv.firstChild.textContent = "סטטוס: הפסקת הקשבה ידנית. מוכן.";
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                } else {
+                    // מצב לא צפוי (למשל, לחיצה בזמן שליחת בקשה ל-LLM)
+                     console.log("Stop button clicked in unexpected state.");
+                }
             };
 
             recognition.onresult = async (event) => {
+                // ברגע שיש תוצאה, נטרל את כפתור העצירה עד שהתגובה תגיע ותושמע
+                stopButton.disabled = true;
+
                 const transcript = event.results[0][0].transcript; outputDiv.textContent = `זיהיתי: ${transcript}`;
                 conversationHistory.push({ role: "user", parts: [{ text: transcript }] }); updateHistoryDisplay();
 
@@ -119,55 +117,31 @@
                          if(defaultHebrewVoice) utterThis.voice = defaultHebrewVoice;
                          else console.warn("No Hebrew voice found for TTS.");
 
+                         // הפעל את כפתור העצירה/קח_תור מיד לפני שהדיבור מתחיל
+                         startButton.disabled = true; // ודא שההתחלה הידנית מנוטרלת
+                         stopButton.disabled = false;
+
                          utterThis.onend = function(event) {
-                             console.log('TTS finished speaking. Triggering automatic recognition restart.'); // הוספת לוג
-                             startRecognitionSafe(); // << התיקון אמור לגרום לזה לעבוד עכשיו
+                             console.log('TTS finished speaking. Starting recognition again...');
+                             // הדיבור הסתיים טבעית, התחל להקשיב אוטומטית
+                             // כפתור העצירה כבר מאופשר ע"י startRecognitionSafe
+                             startRecognitionSafe();
                          };
 
                          utterThis.onerror = function(event){ console.error('System TTS error', event); statusDiv.firstChild.textContent = "סטטוס: שגיאה בהשמעה. מוכן."; startButton.disabled = false; stopButton.disabled = true; };
                          synthesis.speak(utterThis);
                     } else {
                          statusDiv.firstChild.textContent = "סטטוס: התקבלה תשובה (TTS לא זמין). מוכן.";
-                         startButton.disabled = false; stopButton.disabled = true; // חזרה למצב מוכן
+                         startButton.disabled = false; stopButton.disabled = true;
                     }
                 } catch (error) { /* ... טיפול בשגיאות LLM מחזיר למצב מוכן ... */
                      console.error("Error querying Gemini:", error); llmResponseDiv.textContent = `שגיאה בתקשורת עם Gemini: ${error.message}`; statusDiv.firstChild.textContent = "סטטוס: שגיאה. מוכן."; if (llmAnswer === '') { conversationHistory.pop(); updateHistoryDisplay(); } startButton.disabled = false; stopButton.disabled = true;
                 } finally { loadingSpinner.style.display = 'none'; }
             };
 
-            // שינינו מעט את ההתנהגות ב-onend ו-onerror כדי לוודא חזרה למצב יציב
-            recognition.onend = () => {
-                 // אם הזיהוי הסתיים בלי תוצאה (למשל, עקב stop() או סיום טבעי בלי דיבור מספיק)
-                 // וגם אנחנו לא באמצע תהליך TTS (שבסופו יפעיל מחדש), אז נחזור למצב מוכן.
-                 // בדיקה פשוטה: אם כפתור ההתחלה מנוטרל, זה אומר שפונקציית onresult רצה או רצה לאחרונה, אז ניתן ל-onend של ה-TTS להחליט אם להפעיל מחדש.
-                 if (!startButton.disabled) {
-                     console.log("Recognition ended while not actively processing result/TTS.");
-                     statusDiv.firstChild.textContent = "סטטוס: מוכן להתחיל הקלטה.";
-                     stopButton.disabled = true;
-                 } else {
-                     console.log("Recognition ended, likely waiting for TTS to finish or result processing.");
-                 }
-            };
-            recognition.onerror = (event) => {
-                 if (event.error === 'no-speech') {
-                     outputDiv.textContent = 'לא זוהה דיבור. לחץ שוב כדי לדבר.'; // נותנים למשתמש ללחוץ שוב
-                     statusDiv.firstChild.textContent = 'סטטוס: לא זוהה דיבור. מוכן.';
-                 } else if (event.error === 'audio-capture') {
-                     outputDiv.textContent = 'שגיאה: מיקרופון.';
-                     statusDiv.firstChild.textContent = 'שגיאה: מיקרופון. מוכן.';
-                 } else if (event.error === 'aborted') {
-                     // קורה כשלוחצים "סיים לדבר" או "שיחה חדשה" - מטופל שם
-                     console.log("Recognition aborted by user action.");
-                 }
-                 else {
-                     statusDiv.firstChild.textContent = `שגיאה בזיהוי: ${event.error}. מוכן.`;
-                     console.error("STT error:", event.error);
-                 }
-                 // בכל שגיאה כזו, אפשר הפעלה ידנית מחדש
-                 startButton.disabled = false;
-                 stopButton.disabled = true;
-                 loadingSpinner.style.display = 'none';
-            };
+            // נשאיר את onend ו-onerror כפי שהיו בגרסה הקודמת לטיפול בשגיאות/סיום לא צפוי
+             recognition.onend = () => { if (!startButton.disabled) { console.log("Recognition ended while idle."); statusDiv.firstChild.textContent = "סטטוס: מוכן להתחיל הקלטה."; stopButton.disabled = true; } else { console.log("Recognition ended, likely processing result/TTS."); } };
+             recognition.onerror = (event) => { if (event.error === 'no-speech') { outputDiv.textContent = 'לא זוהה דיבור. לחץ שוב כדי לדבר.'; statusDiv.firstChild.textContent = 'סטטוס: לא זוהה דיבור. מוכן.'; } else if (event.error === 'audio-capture') { outputDiv.textContent = 'שגיאה: מיקרופון.'; statusDiv.firstChild.textContent = 'שגיאה: מיקרופון. מוכן.';} else if (event.error === 'aborted') { console.log("Recognition aborted by user action."); } else { statusDiv.firstChild.textContent = `שגיאה בזיהוי: ${event.error}. מוכן.`; console.error("STT error:", event.error); } startButton.disabled = false; stopButton.disabled = true; loadingSpinner.style.display = 'none'; };
         } else { /* ... ללא שינוי ... */
              statusDiv.firstChild.textContent = "שגיאה: הדפדפן לא תומך ב-Web Speech API."; startButton.disabled = true; stopButton.disabled = true; }
 
